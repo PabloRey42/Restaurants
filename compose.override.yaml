@@ -1,0 +1,51 @@
+﻿services:
+  restaurants.presentation.api:
+    image: restaurants.presentation.api
+    build:
+      context: .
+      dockerfile: Presentation/Restaurants.Presentation.Api/Dockerfile
+    environment:
+      - ConnectionStrings__RestaurantsDb=Server=sqlserver-container;Database=RestaurantDb;User Id=sa;Password=restaurantDb123!;Trusted_Connection=false;MultipleActiveResultSets=true;Encrypt=false;
+      - BlobStorage__ConnectionString=DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=restaurantStore123!;BlobEndpoint=http://azurite:10000/devstoreaccount1;
+    depends_on:
+      - sqlserver-container
+      - azure-storage-emulator
+    ports:
+      - "5001:8080" # Expose l'API sur le port 5001
+    networks:
+      - restaurant-network
+
+  sqlserver-container:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      - ACCEPT_EULA=Y # Accepter le contrat de licence de SQL Server
+      - MSSQL_SA_PASSWORD=restaurantDb123! # Mot de passe pour l'utilisateur 'sa'
+      - MSSQL_PID=Express # Version gratuite de SQL Server
+    ports:
+      - "1433:1433" # Expose SQL Server sur le port 1433
+    volumes:
+      - sqlserver-data:/var/opt/mssql # Persistance des données SQL Server
+    networks:
+      - restaurant-network
+  
+  azure-storage-emulator:
+    image: mcr.microsoft.com/azure-storage/azurite
+    container_name: azurite
+    ports:
+      - "10000:10000"
+      - "10001:10001"
+      - "10002:10002"
+    volumes:
+      - azurite-data:/data
+    environment:
+      - AZURITE_ACCOUNTS=devstoreaccount1:restaurantStore123!
+    networks:
+      - restaurant-network
+
+networks:
+  restaurant-network:
+    driver: bridge
+
+volumes:
+  sqlserver-data:
+  azurite-data:

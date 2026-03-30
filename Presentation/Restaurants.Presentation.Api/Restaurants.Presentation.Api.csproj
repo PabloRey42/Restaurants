@@ -4,6 +4,7 @@
         <TargetFramework>net8.0</TargetFramework>
         <Nullable>enable</Nullable>
         <ImplicitUsings>enable</ImplicitUsings>
+        <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
     </PropertyGroup>
 
     <PropertyGroup Condition=" '$(RunConfiguration)' == 'https' "/>
@@ -33,6 +34,12 @@
         <ProjectReference Include="..\..\Infrastructure\Restaurants.Infrastructure.Application\Restaurants.Infrastructure.Application.csproj"/>
         <ProjectReference Include="..\..\Infrastructure\Restaurants.Infrastructure.Ioc\Restaurants.Infrastructure.Ioc.csproj"/>
         <ProjectReference Include="..\..\Application\Restaurant.Application.Ioc\Restaurant.Application.Ioc.csproj"/>
+    </ItemGroup>
+
+    <ItemGroup>
+      <Content Include="..\..\.dockerignore">
+        <Link>.dockerignore</Link>
+      </Content>
     </ItemGroup>
 
 </Project>
