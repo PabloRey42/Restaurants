@@ -406,6 +406,9 @@ serilog.*.json
 !appsettings.json
 !serilog.json
 
-
-
 Presentation/.DS_Store
+
+.env
+.env.local
+.env.*.local
+*.pfx
