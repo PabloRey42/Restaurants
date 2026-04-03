@@ -254,3 +254,62 @@ jobs:
           if [ "$ENV_NAME" = 'staging' ]; then
             echo '**Prochaine étape** : Créer un tag Git pour déclencher le déploiement production' >> $GITHUB_STEP_SUMMARY
           fi
+  # ════════════════════════════════════════════════════════════════
+  # JOB 4 — DEPLOY TO AZURE CONTAINER APPS
+  # Déploie la nouvelle image Docker sur l'environnement ciblé
+  # ════════════════════════════════════════════════════════════════
+  deploy-azure:
+    name: Deploy to Azure Container Apps
+    runs-on: ubuntu-latest
+    needs: deploy
+    
+    # L'environnement GitHub charge "secrets" et "vars" selon le contexte
+    environment:
+      name: ${{ startsWith(github.ref, 'refs/tags/v') && 'production' || 'staging' }}
+
+    if: |
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/main' ||
+       startsWith(github.ref, 'refs/tags/v'))
+
+    env:
+      ENV_NAME: ${{ startsWith(github.ref, 'refs/tags/v') && 'Production' || 'Staging' }}
+      IMAGE_TAG: ${{ needs.docker-publish.outputs.image-tag }}
+
+    steps:
+      # ── 1. Connexion (Utilise le Secret global du Repository) ───
+      - name: Login to Azure
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      # ── 2. Déploiement sur Azure Container Apps ─────────────────
+      - name: Déployer sur Azure Container Apps
+        uses: azure/container-apps-deploy-action@v2
+        with:
+          resourceGroup: ${{ vars.AZURE_RESOURCE_GROUP }}
+          containerAppName: ${{ vars.AZURE_CONTAINER_APP_NAME }}
+          imageToDeploy: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+
+      # ── 3. (Optionnel) Mise à jour des Variables & Secrets via CLI
+      # L'action ci-dessus déploie l'image. Le CLI permet un contrôle fin 
+      # des variables d'environnement et des chaînes de connexion.
+      - name: Mettre à jour les variables et secrets (CLI)
+        run: |
+          # 1. On injecte les secrets dans le coffre de la Container App
+          az containerapp secret set \
+            --name ${{ vars.AZURE_CONTAINER_APP_NAME }} \
+            --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+            --secrets "db-connection=${{ secrets.AZURE_SQL_CONNECTION }}" "blob-connection=${{ secrets.AZURE_BLOB_CONNECTION }}"
+            
+          # 2. On lie ces secrets aux variables d'environnement de ton API ASP.NET
+          az containerapp update \
+            --name ${{ vars.AZURE_CONTAINER_APP_NAME }} \
+            --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+            --set-env-vars "ASPNETCORE_ENVIRONMENT=${{ env.ENV_NAME }}" "ConnectionStrings__RestaurantsDb=secretref:db-connection" "BlobStorage__ConnectionString=secretref:blob-connection"
+
+      # ── 4. Résumé du déploiement ────────────────────────────────
+      - name: Résumé du déploiement Azure
+        run: |
+          echo "## 🚀 Déploiement Azure Container Apps ($ENV_NAME) réussi" >> $GITHUB_STEP_SUMMARY
+          echo "**Image** : \`${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}\`" >> $GITHUB_STEP_SUMMARY
