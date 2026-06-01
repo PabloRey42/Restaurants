@@ -1,315 +1,54 @@
-name: CI/CD — Restaurant API
+name: CI/CD -- Restaurant API
 
 permissions:
   contents: read
 
-# ── TRIGGERS — Quand ce pipeline se déclenche ──────────────────────
+# ── TRIGGERS -- Quand ce pipeline se déclenche ──────────────────────
 on:
-    push:
-      branches:
-        - main          # Déploiement staging automatique
-        - develop       # Build + test uniquement (pas de déploiement)
-      tags:
-        - 'v*.*.*'      # Ex: v1.2.3 → déclenchera le déploiement production
-    pull_request:
-      branches:
-        - main          # Validation avant merge
-        - develop
+  push:
+    branches:
+      - main      # Déploiement staging automatique
+      - develop   # Build + test uniquement (pas de déploiement)
+    tags:
+      - 'v*.*.*'  # Ex: v1.2.3 → déclenchera le déploiement production
+  pull_request:
+    branches:
+      - main      # Validation avant merge
+      - develop
 
 # ── VARIABLES GLOBALES ──────────────────────────────────────────────
-# Ces variables sont réutilisables dans tous les jobs
 env:
-    # Nom complet de l'image sur Docker Hub
-    # On le construit à partir du secret DOCKERHUB_USERNAME
-    IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/restaurant-api
-  
+  IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/restaurant-api
+
 # ════════════════════════════════════════════════════════════════════
-# JOB 1 — BUILD AND TEST
-# Compile le code .NET et exécute les tests
-# S'exécute sur TOUTES les branches (push et PR)
+# JOB 1 -- BUILD AND TEST
 # ════════════════════════════════════════════════════════════════════
 jobs:
   build-and-test:
     name: Build & Test
-    runs-on: ubuntu-latest   # Machine virtuelle Ubuntu fournie par GitHub
-
+    runs-on: ubuntu-latest
     steps:
-
-      # ── Étape 1 : Cloner le dépôt ──────────────────────────────
-      # Pourquoi : la machine virtuelle est vide au départ.
-      # Cette action copie le code sur la machine.
       - name: Checkout du code source
         uses: actions/checkout@v4
 
-      # ── Étape 2 : Installer le SDK .NET 8 ──────────────────────
-      # Pourquoi : la machine Ubuntu n'a pas .NET installé par défaut.
-      # On installe exactement la version 8.0.x utilisée par le projet.
       - name: Installer .NET 8
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
-       
-        # ── Étape 3 : Mettre en cache les packages NuGet ───────────
-        # Pourquoi : sans cache, chaque exécution re-télécharge tous
-        # les packages NuGet depuis Internet (30-60 secondes supplémentaires).
-        # Avec le cache, si les fichiers .csproj n'ont pas changé,
-        # on réutilise les packages déjà téléchargés → gain de 2-3 minutes.
+
       - name: Mettre en cache NuGet
         uses: actions/cache@v4
         with:
-            path: ~/.nuget/packages
-            key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
-            restore-keys: |
-                ${{ runner.os }}-nuget-
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
 
-        # ── Étape 4 : Restaurer les dépendances ────────────────────
-        # Équivalent de 'dotnet restore' en local.
-        # Télécharge tous les packages NuGet listés dans vos .csproj.
       - name: Restaurer les dépendances
         run: dotnet restore
 
-        # ── Étape 5 : Compiler ─────────────────────────────────────
-        # --no-restore : évite de restaurer deux fois (déjà fait à l'étape 4)
-        # --configuration Release : optimise le code pour la production
       - name: Compiler le projet
         run: dotnet build --no-restore --configuration Release
 
-        # ── Étape 6 : Exécuter les tests ───────────────────────────
-        # Si un test échoue → ce step échoue → le job échoue
-        # → les Jobs suivants NE s'exécutent PAS
-        # C'est la 'gate' de qualité automatique.
       - name: Exécuter les tests
         run: dotnet test --no-build --configuration Release --verbosity normal
-
- # ════════════════════════════════════════════════════════════════
-  # JOB 2 — DOCKER BUILD & PUBLISH
-  # Construit l'image Docker et la pousse sur Docker Hub
-  # Ne s'exécute que si Job 1 réussit ET sur main ou un tag
-  # ════════════════════════════════════════════════════════════════
-  docker-publish:
-    name: Docker Build & Publish
-    runs-on: ubuntu-latest
-    needs: build-and-test    # DÉPENDANCE : attend la réussite du Job 1
-
-    # CONDITION : s'exécute seulement si...
-    # - c'est un push (pas une PR)
-    # - ET c'est sur main OU c'est un tag versionné (v1.2.3)
-    if: |
-      github.event_name == 'push' &&
-      (github.ref == 'refs/heads/main' ||
-       startsWith(github.ref, 'refs/tags/v'))
-
-    # OUTPUTS : ce job produit des données utilisées par le Job 3
-    outputs:
-      image-tag: ${{ steps.meta.outputs.version }}
-      is-release: ${{ startsWith(github.ref, 'refs/tags/v') }}
-
-    steps:
-
-      - name: Checkout du code source
-        uses: actions/checkout@v4
-
-      # ── Configurer Docker Buildx ────────────────────────────────
-      # Buildx est une version améliorée du builder Docker.
-      # Il supporte le cache GitHub Actions et le build multi-architecture.
-      # Indispensable pour utiliser l'action docker/build-push-action.
-      - name: Configurer Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      # ── Se connecter à Docker Hub ───────────────────────────────
-      # Utilise les secrets configurés à l'étape B.
-      # Équivalent automatique de votre 'docker login' du TP 10.
-      - name: Connexion à Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      # ── Générer les métadonnées et les tags ────────────────────
-      # C'est l'étape la plus importante pour le versioning.
-      # Cette action génère automatiquement les bons tags selon le contexte :
-      #
-      # Si push sur main :
-      #   → username/restaurant-api:sha-a3f2c891 (SHA du commit)
-      #   → username/restaurant-api:main
-      #
-      # Si tag git v1.2.3 :
-      #   → username/restaurant-api:1.2.3
-      #   → username/restaurant-api:1.2
-      #   → username/restaurant-api:latest
-      - name: Générer les tags et métadonnées
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.IMAGE_NAME }}
-          tags: |
-            # Sur push main → tag avec le SHA du commit (traçabilité)
-            type=sha,prefix=sha-,enable=${{ github.ref == 'refs/heads/main' }}
-            # Sur tag v1.2.3 → tag sémantique complet
-            type=semver,pattern={{version}}
-            # Sur tag v1.2.3 → tag majeur.mineur seulement (ex: 1.2)
-            type=semver,pattern={{major}}.{{minor}}
-            # 'latest' uniquement sur les releases taguées
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
-
-      # ── Construire et pousser l'image ───────────────────────────
-      # Équivalent automatique de vos commandes du TP 10 :
-      #   docker build ...
-      #   docker tag ...
-      #   docker push ...
-      #
-      # cache-from/cache-to : réutilise les couches Docker déjà buildées.
-      # Si votre code change mais pas les dépendances NuGet,
-      # les couches COPY .csproj + dotnet restore sont réutilisées → +50% de vitesse.
-      - name: Builder et pousser l'image Docker
-        id: build
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: Presentation/Restaurants.Presentation.Api/Dockerfile
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      # ── Résumé visible dans GitHub ──────────────────────────────
-      # Ces lignes créent un joli résumé dans l'onglet Actions de GitHub
-      - name: Résumé du build
-        run: |
-          echo '## Image Docker publiée' >> $GITHUB_STEP_SUMMARY
-          echo '' >> $GITHUB_STEP_SUMMARY
-          echo '| Clé | Valeur |' >> $GITHUB_STEP_SUMMARY
-          echo '|-----|--------|' >> $GITHUB_STEP_SUMMARY
-          echo "| Image | \`${{ env.IMAGE_NAME }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Tags | ${{ steps.meta.outputs.tags }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Digest | ${{ steps.build.outputs.digest }} |" >> $GITHUB_STEP_SUMMARY
-
-  # ════════════════════════════════════════════════════════════════
-  # JOB 3 — DEPLOY
-  # Déploie selon l'environnement : staging (auto) ou production (approbation)
-  # ════════════════════════════════════════════════════════════════
-  deploy:
-    name: Deploy
-    runs-on: ubuntu-latest
-    needs: docker-publish    # Attend la réussite du Job 2
-    permissions:
-      contents: write
-
-    # Stratégie : définir l'environnement cible selon le contexte
-    # - Push sur main → staging (automatique)
-    # - Tag v*.*.* → production (nécessite approbation humaine)
-    environment:
-      name: ${{ startsWith(github.ref, 'refs/tags/v') && 'production' || 'staging' }}
-
-    steps:
-
-      - name: Checkout du code source
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      # ── Extraire le tag de l'image ──────────────────────────────
-      # On récupère le tag généré par le Job 2 pour l'utiliser ici
-      - name: Récupérer le tag de l'image
-        id: image
-        run: |
-          TAG='${{ needs.docker-publish.outputs.image-tag }}'
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
-          echo "Image à déployer : ${{ env.IMAGE_NAME }}:$TAG"
-
-      # ── Mettre à jour le compose.yaml avec le nouveau tag ───────
-      # On remplace automatiquement le tag dans compose.yaml
-      # C'est l'équivalent automatique de ce que vous faisiez à la main
-      # en éditant la ligne 'image:' dans le TP 10.
-      - name: Mettre à jour compose.yaml avec le nouveau tag
-        run: |
-          # Remplacer l'image dans compose.yaml
-          sed -i 's|image: .*restaurant-api.*|image: ${{ env.IMAGE_NAME }}:${{ steps.image.outputs.tag }}|' compose.yaml
-          
-          # Afficher le résultat pour vérification
-          echo '=== compose.yaml après mise à jour ==='
-          grep 'image:' compose.yaml
-
-      # ── Committer la mise à jour dans le dépôt ─────────────────
-      # Cela crée un historique Git de chaque déploiement.
-      # On peut voir dans Git QUEL tag était déployé à QUELLE date.
-      - name: Committer la mise à jour du compose.yaml
-        run: |
-          ENV_NAME='${{ startsWith(github.ref, 'refs/tags/v') && 'production' || 'staging' }}'
-          git config user.name  'GitHub Actions'
-          git config user.email 'actions@github.com'
-          git add compose.yaml
-          git commit -m "deploy($ENV_NAME): image ${{ env.IMAGE_NAME }}:${{ steps.image.outputs.tag }}" || echo 'Rien à committer'
-          git push || echo 'Push ignoré (branche protégée ou rien à pousser)'
-
-      # ── Résumé du déploiement ───────────────────────────────────
-      - name: Résumé du déploiement
-        run: |
-          ENV_NAME='${{ startsWith(github.ref, 'refs/tags/v') && 'production' || 'staging' }}'
-          echo "## 🚀 Déploiement $ENV_NAME réussi" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Image déployée** : \`${{ env.IMAGE_NAME }}:${{ steps.image.outputs.tag }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          if [ "$ENV_NAME" = 'staging' ]; then
-            echo '**Prochaine étape** : Créer un tag Git pour déclencher le déploiement production' >> $GITHUB_STEP_SUMMARY
-          fi
-  # ════════════════════════════════════════════════════════════════
-  # JOB 4 — DEPLOY TO AZURE CONTAINER APPS
-  # Déploie la nouvelle image Docker sur l'environnement ciblé
-  # ════════════════════════════════════════════════════════════════
-  deploy-azure:
-    name: Deploy to Azure Container Apps
-    runs-on: ubuntu-latest
-    needs: docker-publish
-    
-    # L'environnement GitHub charge "secrets" et "vars" selon le contexte
-    environment:
-      name: ${{ startsWith(github.ref, 'refs/tags/v') && 'production' || 'staging' }}
-
-    if: |
-      github.event_name == 'push' &&
-      (github.ref == 'refs/heads/main' ||
-       startsWith(github.ref, 'refs/tags/v'))
-
-    env:
-      ENV_NAME: ${{ startsWith(github.ref, 'refs/tags/v') && 'Production' || 'Staging' }}
-      IMAGE_TAG: ${{ needs.docker-publish.outputs.image-tag }}
-
-    steps:
-      # ── 1. Connexion (Utilise le Secret global du Repository) ───
-      - name: Login to Azure
-        uses: azure/login@v1
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      # ── 2. Déploiement sur Azure Container Apps ─────────────────
-      - name: Déployer sur Azure Container Apps
-        uses: azure/container-apps-deploy-action@v2
-        with:
-          resourceGroup: ${{ vars.AZURE_RESOURCE_GROUP }}
-          containerAppName: ${{ vars.AZURE_CONTAINER_APP_NAME }}
-          imageToDeploy: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
-
-      # ── 3. (Optionnel) Mise à jour des Variables & Secrets via CLI
-      # L'action ci-dessus déploie l'image. Le CLI permet un contrôle fin 
-      # des variables d'environnement et des chaînes de connexion.
-      - name: Mettre à jour les variables et secrets (CLI)
-        run: |
-          # 1. On injecte les secrets dans le coffre de la Container App
-          az containerapp secret set \
-            --name ${{ vars.AZURE_CONTAINER_APP_NAME }} \
-            --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
-            --secrets "db-connection=${{ secrets.AZURE_SQL_CONNECTION }}" "blob-connection=${{ secrets.AZURE_BLOB_CONNECTION }}"
-            
-          # 2. On lie ces secrets aux variables d'environnement de ton API ASP.NET
-          az containerapp update \
-            --name ${{ vars.AZURE_CONTAINER_APP_NAME }} \
-            --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
-            --set-env-vars "ASPNETCORE_ENVIRONMENT=${{ env.ENV_NAME }}" "ConnectionStrings__RestaurantsDb=secretref:db-connection" "BlobStorage__ConnectionString=secretref:blob-connection"
-
-      # ── 4. Résumé du déploiement ────────────────────────────────
-      - name: Résumé du déploiement Azure
-        run: |
-          echo "## 🚀 Déploiement Azure Container Apps ($ENV_NAME) réussi" >> $GITHUB_STEP_SUMMARY
-          echo "**Image** : \`${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}\`" >> $GITHUB_STEP_SUMMARY
