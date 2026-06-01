@@ -1,6 +1,6 @@
 services:
   restaurants.presentation.api:
-    image: xxfifou42footronaldoxx/restaurant-api:v1.0.0
+    image: xxfifou42footronaldoxx/restaurant-api:sha-1844e41
     environment:
       - ConnectionStrings__RestaurantsDb=Server=sqlserver-container;Database=RestaurantDb;User Id=sa;Password=restaurantDb123!;Trusted_Connection=false;MultipleActiveResultSets=true;Encrypt=false;
       - BlobStorage__ConnectionString=DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=restaurantStore123!;BlobEndpoint=http://azurite:10000/devstoreaccount1;
