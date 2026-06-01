@@ -1,6 +1,6 @@
 services:
   restaurants.presentation.api:
-    image: ${DOCKER_IMAGE:-xxfifou42footronaldoxx/restaurant-api:latest}
+    image: xxfifou42footronaldoxx/restaurant-api:sha-40bd976
     environment:
       - ConnectionStrings__RestaurantsDb=${DB_CONNECTION_STRING}
       - BlobStorage__ConnectionString=${BLOB_CONNECTION_STRING}
