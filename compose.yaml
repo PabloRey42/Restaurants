@@ -1,28 +1,33 @@
 services:
   restaurants.presentation.api:
-    image: xxfifou42footronaldoxx/restaurant-api:sha-1844e41
+    image: ${DOCKER_IMAGE:-xxfifou42footronaldoxx/restaurant-api:latest}
     environment:
-      - ConnectionStrings__RestaurantsDb=Server=sqlserver-container;Database=RestaurantDb;User Id=sa;Password=restaurantDb123!;Trusted_Connection=false;MultipleActiveResultSets=true;Encrypt=false;
-      - BlobStorage__ConnectionString=DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=restaurantStore123!;BlobEndpoint=http://azurite:10000/devstoreaccount1;
+      - ConnectionStrings__RestaurantsDb=${DB_CONNECTION_STRING}
+      - BlobStorage__ConnectionString=${BLOB_CONNECTION_STRING}
+      - ASPNETCORE_ENVIRONMENT=${APP_ENV:-Production}
     depends_on:
       - sqlserver-container
       - azure-storage-emulator
     ports:
-      - "5001:8080"
+      - "${API_PORT:-5001}:8080"
     networks:
       - restaurant-network
+    restart: unless-stopped
+
   sqlserver-container:
     image: mcr.microsoft.com/mssql/server:2022-latest
     environment:
       - ACCEPT_EULA=Y
-      - MSSQL_SA_PASSWORD=restaurantDb123!
+      - MSSQL_SA_PASSWORD=${SQL_SA_PASSWORD}
       - MSSQL_PID=Express
     ports:
-      - "1433:1433"
+      - "${SQL_PORT:-1433}:1433"
     volumes:
       - sqlserver-data:/var/opt/mssql
     networks:
       - restaurant-network
+    restart: unless-stopped
+
   azure-storage-emulator:
     image: mcr.microsoft.com/azure-storage/azurite
     container_name: azurite
@@ -33,12 +38,14 @@ services:
     volumes:
       - azurite-data:/data
     environment:
-      - AZURITE_ACCOUNTS=devstoreaccount1:restaurantStore123!
+      - AZURITE_ACCOUNTS=${AZURITE_ACCOUNTS:-devstoreaccount1:restaurantStore123!}
     networks:
       - restaurant-network
+
 networks:
   restaurant-network:
     driver: bridge
+
 volumes:
   sqlserver-data:
   azurite-data:

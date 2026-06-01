@@ -412,3 +412,9 @@ Presentation/.DS_Store
 .env.local
 .env.*.local
 *.pfx
+
+# Fichiers d'environnement (secrets locaux)
+.env
+.env.local
+.env.*.local
+*.pfx
